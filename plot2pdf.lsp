@@ -12,11 +12,12 @@
       (getvar "DWGPREFIX"))
     ((getenv "PLOT2PDF_DIR"))))
 
-;; 自动检测 DWG To PDF.pc3 名称（序号因机器而异）
-(setq *plot2pdf-pc3* "DWG To PDF.pc3")
+;; 自动检测 DWG To PDF.pc3 完整路径
+(setq *plot2pdf-pc3* "DWG To PDF.pc3"
+      *plot2pdf-pc3-path* nil)
 (foreach n '("DWG To PDF.pc3" "DWG To PDF - 1.pc3" "DWG To PDF - 2.pc3" "DWG To PDF - 3.pc3")
-  (if (and (setq f (findfile n)) (= 'STR (type f)))
-    (setq *plot2pdf-pc3* n)))
+  (if (and (not *plot2pdf-pc3-path*) (setq f (findfile n)) (= 'STR (type f)))
+    (setq *plot2pdf-pc3-path* f *plot2pdf-pc3* n)))
 
 (defun c:PLOT2PDF (/ frameSS i frameEnt frameObj ok
                     coords pts
@@ -118,7 +119,9 @@
                       (vlax-invoke (vlax-create-object "WScript.Shell") 'Run
                         (strcat "\"" *plot2pdf-dir* "\\crop_pdf.exe\" \""
                                 pdfPath "\" " (rtos minx 2 6) " " (rtos miny 2 6) " "
-                                (rtos maxx 2 6) " " (rtos maxy 2 6) " " (rtos margin 2 6)) 0)
+                                (rtos maxx 2 6) " " (rtos maxy 2 6) " " (rtos margin 2 6)
+                                (if *plot2pdf-pc3-path*
+                                  (strcat " \"" *plot2pdf-pc3-path* "\"") "")) 0)
                       (princ "\n错误: crop_pdf.exe 未找到，跳过裁剪。"))
                     (setq total (1+ total))
                     (vla-Highlight frameObj :vlax-false))))))))

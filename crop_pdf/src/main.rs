@@ -10,10 +10,34 @@ fn parse(args: &[String], i: usize) -> f64 {
     args[i].parse().unwrap_or(0.0)
 }
 
+/// Read actual_printable_bounds from a DWG To PDF.pc3 JSON file.
+fn read_hw_margins(pc3_path: &str) -> (f64, f64) {
+    let text = fs::read_to_string(pc3_path).unwrap_or_default();
+    // Strip the "PIAFILEVERSION_3.0,json\n" header
+    if let Some(pos) = text.find('{') {
+        let json: serde_json::Value =
+            serde_json::from_str(&text[pos..]).unwrap_or(serde_json::Value::Null);
+        if let Some(media) = json.pointer("/data/media") {
+            let llx = media
+                .get("actual_printable_bounds_llx")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let lly = media
+                .get("actual_printable_bounds_lly")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            return (llx, lly);
+        }
+    }
+    (0.0, 0.0)
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 7 {
-        eprintln!("Usage: crop_pdf <PDF> <minx> <miny> <maxx> <maxy> <margin> [comp] [pad_tr]");
+        eprintln!(
+            "Usage: crop_pdf <PDF> <minx> <miny> <maxx> <maxy> <margin> [pc3_path] [pad_tr]"
+        );
         std::process::exit(1);
     }
 
@@ -23,18 +47,26 @@ fn main() {
     let maxx = parse(&args, 4);
     let maxy = parse(&args, 5);
     let margin = parse(&args, 6);
-    let comp = if args.len() > 7 { parse(&args, 7) } else { 0.5 };
+
+    // Read hardware margins from PC3 if provided
+    let (hw_left, hw_bottom) = if args.len() > 7 && !args[7].is_empty() {
+        read_hw_margins(&args[7])
+    } else {
+        (0.0, 0.0)
+    };
+
     let pad_tr = if args.len() > 8 { parse(&args, 8) } else { 0.5 };
 
-    let off = (margin - comp) * mm2pt(1.0);
+    let off_x = (margin + hw_left) * mm2pt(1.0);
+    let off_y = (margin + hw_bottom) * mm2pt(1.0);
     let w = (maxx - minx) * mm2pt(1.0);
     let h = (maxy - miny) * mm2pt(1.0);
     let pad = pad_tr * mm2pt(1.0);
 
-    let left = ((off * 100.0).round() / 100.0) as f32;
-    let bottom = ((off * 100.0).round() / 100.0) as f32;
-    let right = (((off + w + pad) * 100.0).round() / 100.0) as f32;
-    let top = (((off + h + pad) * 100.0).round() / 100.0) as f32;
+    let left = ((off_x * 100.0).round() / 100.0) as f32;
+    let bottom = ((off_y * 100.0).round() / 100.0) as f32;
+    let right = (((off_x + w + pad) * 100.0).round() / 100.0) as f32;
+    let top = (((off_y + h + pad) * 100.0).round() / 100.0) as f32;
 
     let mut doc = lopdf::Document::load(pdf_path).expect("Failed to load PDF");
 
