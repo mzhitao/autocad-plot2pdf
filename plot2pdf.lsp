@@ -119,8 +119,8 @@
                         (strcat "\"" *plot2pdf-dir* "\\crop_pdf.exe\" \""
                                 pdfPath "\" " (rtos minx 2 6) " " (rtos miny 2 6) " "
                                 (rtos maxx 2 6) " " (rtos maxy 2 6) " " (rtos margin 2 6)
-                                (if *plot2pdf-pc3-path*
-                                  (strcat " \"" *plot2pdf-pc3-path* "\"") "")) 0)
+                                " \"" (if *plot2pdf-pc3-path* *plot2pdf-pc3-path* "") "\""
+                                " 0.5 0.3 -0.2") 0)
                       (princ "\n错误: crop_pdf.exe 未找到，跳过裁剪。"))
                     (setq total (1+ total))
                     (vla-Highlight frameObj :vlax-false))))))))
