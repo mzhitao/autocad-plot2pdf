@@ -1,8 +1,15 @@
 ;; plot2pdf.lsp — Frame 图层 → 选图框 → 逐框打印 + 高亮 → Python 裁剪
 ;;
 ;; 命令: PLOT2PDF
+;; 配合: crop_pdf.py（和本文件放在同一目录）
 
 (vl-load-com)
+
+(setq *plot2pdf-dir*
+  (vl-filename-directory
+    (or (findfile "crop_pdf.py")
+        (findfile "plot2pdf.lsp")
+        "")))
 
 (defun c:PLOT2PDF (/ frameSS i frameEnt frameObj ok
                     coords pts
@@ -101,7 +108,7 @@
                     (setvar "FILEDIA" oldDia)
                     (setvar "BACKGROUNDPLOT" oldBg)
                     (vlax-invoke (vlax-create-object "WScript.Shell") 'Run
-                      (strcat "python C:\\Users\\maozh\\lisp\\crop_pdf.py \""
+                      (strcat "python \"" *plot2pdf-dir* "\\crop_pdf.py\" \""
                               pdfPath "\" " (rtos minx 2 6) " " (rtos miny 2 6) " "
                               (rtos maxx 2 6) " " (rtos maxy 2 6) " " (rtos margin 2 6)) 0)
                     (setq total (1+ total))
