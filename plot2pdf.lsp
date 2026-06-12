@@ -5,11 +5,12 @@
 
 (vl-load-com)
 
-(setq *plot2pdf-dir*
-  (vl-filename-directory
-    (or (findfile "crop_pdf.py")
-        (findfile "plot2pdf.lsp")
-        "")))
+(setq *plot2pdf-dir* nil)
+(cond
+  ((and (setq f (findfile "crop_pdf.py")) (= 'STR (type f)))
+    (setq *plot2pdf-dir* (vl-filename-directory f)))
+  ((and (setq f (findfile "plot2pdf.lsp")) (= 'STR (type f)))
+    (setq *plot2pdf-dir* (vl-filename-directory f))))
 
 (defun c:PLOT2PDF (/ frameSS i frameEnt frameObj ok
                     coords pts
@@ -107,10 +108,12 @@
                     (setvar "CMDECHO" oldCmd)
                     (setvar "FILEDIA" oldDia)
                     (setvar "BACKGROUNDPLOT" oldBg)
-                    (vlax-invoke (vlax-create-object "WScript.Shell") 'Run
-                      (strcat "python \"" *plot2pdf-dir* "\\crop_pdf.py\" \""
-                              pdfPath "\" " (rtos minx 2 6) " " (rtos miny 2 6) " "
-                              (rtos maxx 2 6) " " (rtos maxy 2 6) " " (rtos margin 2 6)) 0)
+                    (if *plot2pdf-dir*
+                      (vlax-invoke (vlax-create-object "WScript.Shell") 'Run
+                        (strcat "python \"" *plot2pdf-dir* "\\crop_pdf.py\" \""
+                                pdfPath "\" " (rtos minx 2 6) " " (rtos miny 2 6) " "
+                                (rtos maxx 2 6) " " (rtos maxy 2 6) " " (rtos margin 2 6)) 0)
+                      (princ "\n错误: crop_pdf.py 未找到，跳过裁剪。"))
                     (setq total (1+ total))
                     (vla-Highlight frameObj :vlax-false))))))))
 
