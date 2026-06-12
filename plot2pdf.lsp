@@ -1,16 +1,16 @@
-;; plot2pdf.lsp — Frame 图层 → 选图框 → 逐框打印 + 高亮 → Python 裁剪
+;; plot2pdf.lsp — Frame 图层 → 选图框 → 逐框打印 + 高亮 → exe 裁剪
 ;;
 ;; 命令: PLOT2PDF
-;; 配合: crop_pdf.py（和本文件放在同一目录）
+;; 配合: crop_pdf.exe（和本文件放在同一目录）
 
 (vl-load-com)
 
-;; 自动定位 crop_pdf.py 所在目录，搜索顺序:
+;; 自动定位 crop_pdf.exe 所在目录，搜索顺序:
 ;;   1. 当前 DWG 目录（文件丢一起即可）
 ;;   2. 环境变量 PLOT2PDF_DIR（Windows 设置一次）
 (setq *plot2pdf-dir*
   (cond
-    ((vl-file-size (strcat (getvar "DWGPREFIX") "crop_pdf.py"))
+    ((vl-file-size (strcat (getvar "DWGPREFIX") "crop_pdf.exe"))
       (getvar "DWGPREFIX"))
     ((getenv "PLOT2PDF_DIR"))))
 
@@ -112,10 +112,10 @@
                     (setvar "BACKGROUNDPLOT" oldBg)
                     (if *plot2pdf-dir*
                       (vlax-invoke (vlax-create-object "WScript.Shell") 'Run
-                        (strcat "python \"" *plot2pdf-dir* "\\crop_pdf.py\" \""
+                        (strcat "\"" *plot2pdf-dir* "\\crop_pdf.exe\" \""
                                 pdfPath "\" " (rtos minx 2 6) " " (rtos miny 2 6) " "
                                 (rtos maxx 2 6) " " (rtos maxy 2 6) " " (rtos margin 2 6)) 0)
-                      (princ "\n错误: crop_pdf.py 未找到，跳过裁剪。"))
+                      (princ "\n错误: crop_pdf.exe 未找到，跳过裁剪。"))
                     (setq total (1+ total))
                     (vla-Highlight frameObj :vlax-false))))))))
 
