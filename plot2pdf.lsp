@@ -5,12 +5,14 @@
 
 (vl-load-com)
 
-(setq *plot2pdf-dir* nil)
-(cond
-  ((and (setq f (findfile "crop_pdf.py")) (= 'STR (type f)))
-    (setq *plot2pdf-dir* (vl-filename-directory f)))
-  ((and (setq f (findfile "plot2pdf.lsp")) (= 'STR (type f)))
-    (setq *plot2pdf-dir* (vl-filename-directory f))))
+;; 自动定位 crop_pdf.py 所在目录，搜索顺序:
+;;   1. 当前 DWG 目录（文件丢一起即可）
+;;   2. 环境变量 PLOT2PDF_DIR（Windows 设置一次）
+(setq *plot2pdf-dir*
+  (cond
+    ((vl-file-size (strcat (getvar "DWGPREFIX") "crop_pdf.py"))
+      (getvar "DWGPREFIX"))
+    ((getenv "PLOT2PDF_DIR"))))
 
 (defun c:PLOT2PDF (/ frameSS i frameEnt frameObj ok
                     coords pts

@@ -15,12 +15,27 @@ AutoCAD 内执行 `PLOT2PDF` 命令，选中 **Frame 图层** 上的封闭多段
 
 ## 使用流程
 
-1. 在 AutoCAD 中 `APPLOAD` 加载 `plot2pdf.lsp`
-2. 在图形中绘制封闭多段线作为图框，放到 **Frame** 图层
-3. 执行 `PLOT2PDF`
-4. 选择图框（仅 Frame 图层上的封闭多段线）
-5. 自动逐个打印至 `{dwgname}_PDFs\[width].pdf`
-6. 同宽度文件自动编号 `[width](1).pdf`、`[width](2).pdf`…
+1. 确保系统已安装 Python 3.10+ 和 PyMuPDF：`pip install PyMuPDF`
+2. 将 `plot2pdf.lsp` 和 `crop_pdf.py` 放在**同一文件夹**
+3. 文件放置方式（二选一）：
+   - **方式 A**：直接丢到 DWG 所在目录 — 自动识别
+   - **方式 B**：放在任意位置 → 设置系统环境变量 `PLOT2PDF_DIR = 所在文件夹路径`（方法见下）
+4. 在 AutoCAD 中 `APPLOAD` 加载 `plot2pdf.lsp`
+5. 在图形中绘制封闭多段线作为图框，放到 **Frame** 图层
+6. 执行 `PLOT2PDF`
+7. 选择图框（仅 Frame 图层上的封闭多段线）
+8. 自动逐个打印至 `{dwgname}_PDFs\[width].pdf`
+9. 同宽度文件自动编号 `[width](1).pdf`、`[width](2).pdf`…
+
+### 设置环境变量（方式 B 需要）
+
+打开 PowerShell，执行：
+
+```
+[Environment]::SetEnvironmentVariable("PLOT2PDF_DIR", "C:\你的\路径", "User")
+```
+
+然后重启 AutoCAD 使其生效。
 
 ## 输出
 
