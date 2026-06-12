@@ -5,14 +5,18 @@
 
 (vl-load-com)
 
-;; 自动定位 crop_pdf.exe 所在目录，搜索顺序:
-;;   1. 当前 DWG 目录（文件丢一起即可）
-;;   2. 环境变量 PLOT2PDF_DIR（Windows 设置一次）
+;; 自动定位 crop_pdf.exe 所在目录
 (setq *plot2pdf-dir*
   (cond
     ((vl-file-size (strcat (getvar "DWGPREFIX") "crop_pdf.exe"))
       (getvar "DWGPREFIX"))
     ((getenv "PLOT2PDF_DIR"))))
+
+;; 自动检测 DWG To PDF.pc3 名称（序号因机器而异）
+(setq *plot2pdf-pc3* "DWG To PDF.pc3")
+(foreach n '("DWG To PDF.pc3" "DWG To PDF - 1.pc3" "DWG To PDF - 2.pc3" "DWG To PDF - 3.pc3")
+  (if (and (setq f (findfile n)) (= 'STR (type f)))
+    (setq *plot2pdf-pc3* n)))
 
 (defun c:PLOT2PDF (/ frameSS i frameEnt frameObj ok
                     coords pts
@@ -100,7 +104,7 @@
                     (princ (strcat "\n正在打印 " (vl-filename-base pdfPath) ".pdf"))
                     (command "_.-PLOT"
                       "Y" "Model"
-                      "DWG To PDF - 1.pc3"
+                      *plot2pdf-pc3*
                       "A0" "M" "P" "N" "W"
                       (strcat (rtos (- minx margin) 2 6) "," (rtos (- miny margin) 2 6))
                       (strcat (rtos (+ maxx margin) 2 6) "," (rtos (+ maxy margin) 2 6))
