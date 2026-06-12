@@ -101,7 +101,7 @@
                     (command "_.-PLOT"
                       "Y" "Model"
                       "DWG To PDF - 1.pc3"
-                      "A4" "M" "P" "N" "W"
+                      "A0" "M" "P" "N" "W"
                       (strcat (rtos (- minx margin) 2 6) "," (rtos (- miny margin) 2 6))
                       (strcat (rtos (+ maxx margin) 2 6) "," (rtos (+ maxy margin) 2 6))
                       "1=1" "0,0" "Y" "monochrome.ctb" "Y" "A"
