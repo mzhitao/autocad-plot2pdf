@@ -12,12 +12,11 @@
       (getvar "DWGPREFIX"))
     ((getenv "PLOT2PDF_DIR"))))
 
-;; 自动检测 DWG To PDF.pc3 完整路径
+;; 只用默认的 DWG To PDF.pc3（系统自带，无需任何自定义）
 (setq *plot2pdf-pc3* "DWG To PDF.pc3"
       *plot2pdf-pc3-path* nil)
-(foreach n '("DWG To PDF.pc3" "DWG To PDF - 1.pc3" "DWG To PDF - 2.pc3" "DWG To PDF - 3.pc3")
-  (if (and (not *plot2pdf-pc3-path*) (setq f (findfile n)) (= 'STR (type f)))
-    (setq *plot2pdf-pc3-path* f *plot2pdf-pc3* n)))
+(if (and (setq f (findfile *plot2pdf-pc3*)) (= 'STR (type f)))
+  (setq *plot2pdf-pc3-path* f))
 
 (defun c:PLOT2PDF (/ frameSS i frameEnt frameObj ok
                     coords pts
