@@ -56,9 +56,10 @@ fn main() {
     };
 
     let pad_tr = if args.len() > 8 { parse(&args, 8) } else { 0.5 };
+    let pad_lb = if args.len() > 9 { parse(&args, 9) } else { 0.3 };
 
-    let off_x = (margin + hw_left) * mm2pt(1.0);
-    let off_y = (margin + hw_bottom) * mm2pt(1.0);
+    let off_x = (margin + hw_left - pad_lb) * mm2pt(1.0);
+    let off_y = (margin + hw_bottom - pad_lb) * mm2pt(1.0);
     let w = (maxx - minx) * mm2pt(1.0);
     let h = (maxy - miny) * mm2pt(1.0);
     let pad = pad_tr * mm2pt(1.0);
