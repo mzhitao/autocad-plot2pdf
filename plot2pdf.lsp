@@ -1,9 +1,7 @@
-;; plot2pdf.lsp — Frame 图层 → 逐框打印 + 高亮 → exe 裁剪
+;; plot2pdf.lsp — Frame 图层 → 批量打印 PDF → exe 裁剪
 ;;
 ;; 命令: PLOT2PDF
 ;; 配合: crop_pdf.exe（和本文件放在同一目录）
-;;
-;; 交互式操作: 每次选一个图框或输入关键字调整设置
 
 (vl-load-com)
 
@@ -20,11 +18,82 @@
 (if (and (setq f (findfile *plot2pdf-pc3*)) (= 'STR (type f)))
   (setq *plot2pdf-pc3-path* f))
 
-(defun c:PLOT2PDF (/ frameEnt frameObj coords pts ss obj
-                     pmin pmax ll ur minx miny maxx maxy
-                     w h margin paper scale
-                     pdfPath outDir n p1 p2 d pm
-                     oldBg oldDia oldCmd total sel)
+;; 内部函数: 处理一个图框（frameEnt）+ 所有内部对象 → 打印 + 裁剪
+(defun _plot-one-frame (frameEnt outDir margin paper scale idx / frameObj coords pts ss obj
+                        pmin pmax ll ur minx miny maxx maxy w h pdfPath n
+                        oldBg oldDia oldCmd ret)
+  (setq frameObj (vlax-ename->vla-object frameEnt)
+        ret 0)
+  (vla-Highlight frameObj :vlax-true)
+  (setq coords (vlax-safearray->list
+                 (vlax-variant-value (vla-get-Coordinates frameObj)))
+        pts nil)
+  (repeat (/ (length coords) 2)
+    (setq pts (cons (list (car coords) (cadr coords)) pts)
+          coords (cddr coords)))
+  (setq ss (ssget "WP" pts))
+  (if ss
+    (progn
+      (setq minx 1e10 miny 1e10 maxx -1e10 maxy -1e10)
+      (repeat (setq n (sslength ss))
+        (setq n (1- n)
+              obj (vlax-ename->vla-object (ssname ss n)))
+        (if (not (vl-catch-all-error-p
+                   (vl-catch-all-apply
+                     'vla-GetBoundingBox (list obj 'pmin 'pmax))))
+          (progn
+            (setq ll (vlax-safearray->list pmin)
+                  ur (vlax-safearray->list pmax))
+            (setq minx (min minx (car ll) (car ur))
+                  miny (min miny (cadr ll) (cadr ur))
+                  maxx (max maxx (car ll) (car ur))
+                  maxy (max maxy (cadr ll) (cadr ur))))))
+      (if (not (or (= minx 1e10) (= miny 1e10)))
+        (progn
+          (setq w (- maxx minx) h (- maxy miny)
+                pdfPath (strcat outDir "\\" (itoa idx) "-" (rtos w 2 1) ".pdf"))
+          (setq oldBg (getvar "BACKGROUNDPLOT")
+                oldDia (getvar "FILEDIA")
+                oldCmd (getvar "CMDECHO"))
+          (setvar "BACKGROUNDPLOT" 0)
+          (setvar "FILEDIA" 0)
+          (setvar "CMDECHO" 0)
+          (princ (strcat "\n正在打印 " (vl-filename-base pdfPath) ".pdf"))
+          (command "_.-PLOT"
+            "Y" "Model"
+            *plot2pdf-pc3*
+            paper "M" "P" "N" "W"
+            (strcat (rtos (- minx margin) 2 6) "," (rtos (- miny margin) 2 6))
+            (strcat (rtos (+ maxx margin) 2 6) "," (rtos (+ maxy margin) 2 6))
+            (strcat "1=" (rtos scale 2 4)) "0,0" "Y" "monochrome.ctb" "Y" "A"
+            pdfPath "N" "Y")
+          (while (= (logand (getvar "CMDACTIVE") 1) 1) (command ""))
+          (setvar "CMDECHO" oldCmd)
+          (setvar "FILEDIA" oldDia)
+          (setvar "BACKGROUNDPLOT" oldBg)
+          (if *plot2pdf-dir*
+            (progn
+              (vlax-invoke (vlax-create-object "WScript.Shell") 'Run
+                (strcat "\"" *plot2pdf-dir* "\\crop_pdf.exe\" \""
+                        pdfPath "\" " (rtos minx 2 6) " " (rtos miny 2 6) " "
+                        (rtos maxx 2 6) " " (rtos maxy 2 6) " " (rtos margin 2 6)
+                        " \"" (if *plot2pdf-pc3-path* *plot2pdf-pc3-path* "") "\""
+                        " 0.5 0.3 -0.2") 0)
+              (setq ret 1))
+            (princ "\n错误: crop_pdf.exe 未找到，跳过裁剪。"))))))
+  (vla-Highlight frameObj :vlax-false)
+  ret)
+
+;; 辅助：比例值 → 友好字符串（整数显示 "1"，实数显示 "0.59"）
+(defun fmt-scale (s)
+  (if (= (fix s) s)
+    (itoa (fix s))
+    (rtos s 2 2)))
+
+;; 全局变量，跨命令保留上次使用的比例
+(setq *plot2pdf-scale* 1)
+
+(defun c:PLOT2PDF (/ margin paper outDir ss i total n p1 p2 d pm)
 
   ;; 确保 Frame 图层存在
   (if (not (tblsearch "LAYER" "Frame"))
@@ -32,139 +101,37 @@
       (command "_.-LAYER" "_N" "Frame" "")
       (vla-put-Plottable (vlax-ename->vla-object (tblobjname "LAYER" "Frame")) :vlax-false)))
 
-  (setq margin 0.5 paper "A0" scale 1
-        outDir (strcat (getvar "DWGPREFIX") (vl-filename-base (getvar "DWGNAME")) "_PDFs")
-        total 0)
+  (setq margin 0.5 paper "A0"
+        outDir (strcat (getvar "DWGPREFIX") (vl-filename-base (getvar "DWGNAME")) "_PDFs"))
   (vl-mkdir outDir)
 
-  (while
+  (setq ss (ssget '((0 . "LWPOLYLINE") (8 . "Frame") (-4 . "&=") (70 . 1))))
+  (if ss
     (progn
-      (princ (strcat "\n当前设置: 边距=" (rtos margin 2 1) ", 纸张=" paper
-                     ", 比例=1:" (itoa scale)))
-      (initget "边距 纸张 比例")
-      (setq sel (entsel "\n选择图框或 [边距(M)/纸张(P)/比例(S)] <退出>: "))
-
+      (princ (strcat "\n当前比例 = 1:" (fmt-scale *plot2pdf-scale*)))
+      (initget "R")
+      (setq n (getreal (strcat "\n输入比例 (1:N) 或 [参照(R)] <" (fmt-scale *plot2pdf-scale*) ">: ")))
       (cond
-        ((= sel "边距")
-         (setq n (getreal (strcat "\n边距 <" (rtos margin 2 1) ">: ")))
-         (if n (setq margin n))
-         t)
-
-        ((= sel "纸张")
-         (initget "A0 A1 A2 A3 A4")
-         (setq n (getkword (strcat "\n纸张 [A0/A1/A2/A3/A4] <" paper ">: ")))
-         (if n (setq paper n))
-         t)
-
-        ((= sel "比例")
-         (princ (strcat "\n当前比例 = 1:" (itoa scale)))
-         (initget "参照")
-         (setq n (getreal (strcat "\n输入比例 (1:N) 或 [参照(R)] <1:" (itoa scale) ">: ")))
-         (cond
-           ((= n "参照")
-            (setq p1 (getpoint "\n模型空间第一点: "))
-            (if p1
-              (progn
-                (setq p2 (getpoint p1 "\n模型空间第二点: "))
-                (if p2
-                  (progn
-                    (setq d (distance p1 p2))
-                    (if (> d 0)
-                      (progn
-                        (setq pm (getreal "\n对应图纸上的长度(mm): "))
-                        (if (and pm (> pm 0))
-                          (setq scale (fix (max 1 (/ d pm))))
-                          (princ "\n无效长度，比例未更改"))
-                        )
-                      (princ "\n两点距离为零，比例未更改"))
-                    )
-                  (princ "\n未选择第二点，比例未更改"))
-                )
-              (princ "\n未选择点，比例未更改"))
-            (if scale (princ (strcat "\n比例已设为 1:" (itoa scale))))
-            )
-           ((numberp n)
-            (setq scale (fix (max 1 n)))
-            (princ (strcat "\n比例已设为 1:" (itoa scale)))))
-         t)
-
-        ((= (type sel) 'LIST)
-         (setq frameEnt (car sel)
-               frameObj (vlax-ename->vla-object frameEnt))
-         (if (and (= (vla-get-ObjectName frameObj) "AcDbPolyline")
-                  (vlax-get frameObj 'Closed)
-                  (wcmatch (vla-get-Layer frameObj) "Frame"))
-           (progn
-             (vla-Highlight frameObj :vlax-true)
-             (setq coords (vlax-safearray->list
-                            (vlax-variant-value (vla-get-Coordinates frameObj))))
-             (setq pts nil)
-             (repeat (/ (length coords) 2)
-               (setq pts (cons (list (car coords) (cadr coords)) pts)
-                     coords (cddr coords)))
-             (setq ss (ssget "WP" pts))
-             (if ss
-               (progn
-                 (setq minx 1e10 miny 1e10 maxx -1e10 maxy -1e10)
-                 (repeat (setq n (sslength ss))
-                   (setq n (1- n)
-                         obj (vlax-ename->vla-object (ssname ss n)))
-                   (if (not (vl-catch-all-error-p
-                              (vl-catch-all-apply
-                                'vla-GetBoundingBox (list obj 'pmin 'pmax))))
-                     (progn
-                       (setq ll (vlax-safearray->list pmin)
-                             ur (vlax-safearray->list pmax))
-                       (setq minx (min minx (car ll) (car ur))
-                             miny (min miny (cadr ll) (cadr ur))
-                             maxx (max maxx (car ll) (car ur))
-                             maxy (max maxy (cadr ll) (cadr ur))))))
-                 (if (not (or (= minx 1e10) (= miny 1e10)))
-                   (progn
-                     (setq w (- maxx minx) h (- maxy miny)
-                           pdfPath (strcat outDir "\\[" (rtos w 2 2) "].pdf")
-                           n 0)
-                     (while (vl-file-size pdfPath)
-                       (setq n (1+ n)
-                             pdfPath (strcat outDir "\\[" (rtos w 2 2) "](" (itoa n) ").pdf")))
-                     (setq oldBg (getvar "BACKGROUNDPLOT")
-                           oldDia (getvar "FILEDIA")
-                           oldCmd (getvar "CMDECHO"))
-                     (setvar "BACKGROUNDPLOT" 0)
-                     (setvar "FILEDIA" 0)
-                     (setvar "CMDECHO" 0)
-                     (princ (strcat "\n正在打印 " (vl-filename-base pdfPath) ".pdf"))
-                      (command "_.-PLOT"
-                        "Y" "Model"
-                        *plot2pdf-pc3*
-                        paper "M" "P" "N" "W"
-                        (strcat (rtos (- minx margin) 2 6) "," (rtos (- miny margin) 2 6))
-                        (strcat (rtos (+ maxx margin) 2 6) "," (rtos (+ maxy margin) 2 6))
-                        (strcat "1=" (itoa scale)) "0,0" "Y" "monochrome.ctb" "Y" "A"
-                       pdfPath "N" "Y")
-                     (while (= (logand (getvar "CMDACTIVE") 1) 1) (command ""))
-                     (setvar "CMDECHO" oldCmd)
-                     (setvar "FILEDIA" oldDia)
-                     (setvar "BACKGROUNDPLOT" oldBg)
-                     (if *plot2pdf-dir*
-                       (vlax-invoke (vlax-create-object "WScript.Shell") 'Run
-                         (strcat "\"" *plot2pdf-dir* "\\crop_pdf.exe\" \""
-                                 pdfPath "\" " (rtos minx 2 6) " " (rtos miny 2 6) " "
-                                 (rtos maxx 2 6) " " (rtos maxy 2 6) " " (rtos margin 2 6)
-                                 " \"" (if *plot2pdf-pc3-path* *plot2pdf-pc3-path* "") "\""
-                                 " 0.5 0.3 -0.2") 0)
-                       (princ "\n错误: crop_pdf.exe 未找到，跳过裁剪。"))
-                      (setq total (1+ total))))))
-              (vla-Highlight frameObj :vlax-false)
-             t)
-           (progn
-             (princ "\n所选对象不是 Frame 图层上的封闭多段线")
-             t)))
-
-        ((= sel nil) nil))))
-  (princ (strcat "\n全部完成, 共生成 " (itoa total) " 个 PDF"))
-  (princ (strcat "\n输出目录: " outDir))
+        ((= n "R")
+          (setq d (getdist "\n模型空间两点距离: "))
+          (if (and d (> d 0))
+            (progn
+              (setq pm (getreal "\n对应图纸上的长度(mm): "))
+              (if (and pm (> pm 0))
+                (setq *plot2pdf-scale* (/ d pm))
+                (princ "\n无效长度，比例未更改")))
+            (princ "\n无效距离，比例未更改"))
+          (princ (strcat "\n比例已设为 1:" (fmt-scale *plot2pdf-scale*))))
+         ((numberp n)
+         (setq *plot2pdf-scale* n)
+            (princ (strcat "\n比例已设为 1:" (fmt-scale *plot2pdf-scale*)))))
+        (setq total 0 i 0)
+       (repeat (sslength ss)
+         (setq total (+ total (_plot-one-frame (ssname ss i) outDir margin paper *plot2pdf-scale* (1+ i)))
+               i (1+ i)))
+      (princ (strcat "\n全部完成, 共生成 " (itoa total) " 个 PDF"))
+      (princ (strcat "\n输出目录: " outDir)))
+    (princ "\n未选择 Frame 封闭多段线"))
   (princ))
-
 (princ "\nplot2pdf 已加载 — 命令: PLOT2PDF")
 (princ)
