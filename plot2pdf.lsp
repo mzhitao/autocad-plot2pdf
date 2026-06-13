@@ -22,8 +22,8 @@
 
 (defun c:PLOT2PDF (/ frameEnt frameObj coords pts ss obj
                      pmin pmax ll ur minx miny maxx maxy
-                     w h margin paper
-                     pdfPath outDir n
+                     w h margin paper scale
+                     pdfPath outDir n p1 p2 d pm
                      oldBg oldDia oldCmd total sel)
 
   ;; 确保 Frame 图层存在
@@ -32,16 +32,17 @@
       (command "_.-LAYER" "_N" "Frame" "")
       (vla-put-Plottable (vlax-ename->vla-object (tblobjname "LAYER" "Frame")) :vlax-false)))
 
-  (setq margin 0.5 paper "A0"
+  (setq margin 0.5 paper "A0" scale 1
         outDir (strcat (getvar "DWGPREFIX") (vl-filename-base (getvar "DWGNAME")) "_PDFs")
         total 0)
   (vl-mkdir outDir)
 
   (while
     (progn
-      (princ (strcat "\n当前设置: 边距=" (rtos margin 2 1) ", 纸张=" paper))
-      (initget "边距 纸张")
-      (setq sel (entsel "\n选择图框或 [边距(M)/纸张(P)] <退出>: "))
+      (princ (strcat "\n当前设置: 边距=" (rtos margin 2 1) ", 纸张=" paper
+                     ", 比例=1:" (itoa scale)))
+      (initget "边距 纸张 比例")
+      (setq sel (entsel "\n选择图框或 [边距(M)/纸张(P)/比例(S)] <退出>: "))
 
       (cond
         ((= sel "边距")
@@ -53,6 +54,38 @@
          (initget "A0 A1 A2 A3 A4")
          (setq n (getkword (strcat "\n纸张 [A0/A1/A2/A3/A4] <" paper ">: ")))
          (if n (setq paper n))
+         t)
+
+        ((= sel "比例")
+         (princ (strcat "\n当前比例 = 1:" (itoa scale)))
+         (initget "参照")
+         (setq n (getreal (strcat "\n输入比例 (1:N) 或 [参照(R)] <1:" (itoa scale) ">: ")))
+         (cond
+           ((= n "参照")
+            (setq p1 (getpoint "\n模型空间第一点: "))
+            (if p1
+              (progn
+                (setq p2 (getpoint p1 "\n模型空间第二点: "))
+                (if p2
+                  (progn
+                    (setq d (distance p1 p2))
+                    (if (> d 0)
+                      (progn
+                        (setq pm (getreal "\n对应图纸上的长度(mm): "))
+                        (if (and pm (> pm 0))
+                          (setq scale (fix (max 1 (/ d pm))))
+                          (princ "\n无效长度，比例未更改"))
+                        )
+                      (princ "\n两点距离为零，比例未更改"))
+                    )
+                  (princ "\n未选择第二点，比例未更改"))
+                )
+              (princ "\n未选择点，比例未更改"))
+            (if scale (princ (strcat "\n比例已设为 1:" (itoa scale))))
+            )
+           ((numberp n)
+            (setq scale (fix (max 1 n)))
+            (princ (strcat "\n比例已设为 1:" (itoa scale)))))
          t)
 
         ((= (type sel) 'LIST)
@@ -101,13 +134,13 @@
                      (setvar "FILEDIA" 0)
                      (setvar "CMDECHO" 0)
                      (princ (strcat "\n正在打印 " (vl-filename-base pdfPath) ".pdf"))
-                     (command "_.-PLOT"
-                       "Y" "Model"
-                       *plot2pdf-pc3*
-                       paper "M" "P" "N" "W"
-                       (strcat (rtos (- minx margin) 2 6) "," (rtos (- miny margin) 2 6))
-                       (strcat (rtos (+ maxx margin) 2 6) "," (rtos (+ maxy margin) 2 6))
-                       "1=1" "0,0" "Y" "monochrome.ctb" "Y" "A"
+                      (command "_.-PLOT"
+                        "Y" "Model"
+                        *plot2pdf-pc3*
+                        paper "M" "P" "N" "W"
+                        (strcat (rtos (- minx margin) 2 6) "," (rtos (- miny margin) 2 6))
+                        (strcat (rtos (+ maxx margin) 2 6) "," (rtos (+ maxy margin) 2 6))
+                        (strcat "1=" (itoa scale)) "0,0" "Y" "monochrome.ctb" "Y" "A"
                        pdfPath "N" "Y")
                      (while (= (logand (getvar "CMDACTIVE") 1) 1) (command ""))
                      (setvar "CMDECHO" oldCmd)
