@@ -92,6 +92,14 @@ fn main() {
         }
     }
 
+    // Strip Optional Content Groups and PieceInfo — typst doesn't support OCG/layers
+    for (_, obj) in doc.objects.iter_mut() {
+        if let Ok(dict) = obj.as_dict_mut() {
+            dict.remove(b"OCProperties");
+            dict.remove(b"PieceInfo");
+        }
+    }
+
     let tmp = format!("{}.tmp", pdf_path);
     doc.save(&tmp).expect("Failed to save");
     fs::rename(&tmp, pdf_path).expect("Failed to replace");
