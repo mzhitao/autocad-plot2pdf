@@ -162,7 +162,7 @@
              (princ "\n所选对象不是 Frame 图层上的封闭多段线")
              t)))
 
-        ((= sel nil) nil)))
+        ((= sel nil) nil)))))
   (princ (strcat "\n全部完成, 共生成 " (itoa total) " 个 PDF"))
   (princ (strcat "\n输出目录: " outDir))
   (princ))
