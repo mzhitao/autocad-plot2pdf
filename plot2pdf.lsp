@@ -154,15 +154,14 @@
                                  " \"" (if *plot2pdf-pc3-path* *plot2pdf-pc3-path* "") "\""
                                  " 0.5 0.3 -0.2") 0)
                        (princ "\n错误: crop_pdf.exe 未找到，跳过裁剪。"))
-                     (setq total (1+ total))))
-               )
-             (vla-Highlight frameObj :vlax-false)
+                      (setq total (1+ total))))))
+              (vla-Highlight frameObj :vlax-false)
              t)
            (progn
              (princ "\n所选对象不是 Frame 图层上的封闭多段线")
              t)))
 
-        ((= sel nil) nil)))))
+        ((= sel nil) nil))))
   (princ (strcat "\n全部完成, 共生成 " (itoa total) " 个 PDF"))
   (princ (strcat "\n输出目录: " outDir))
   (princ))
