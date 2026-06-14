@@ -18,10 +18,10 @@
 (if (and (setq f (findfile *plot2pdf-pc3*)) (= 'STR (type f)))
   (setq *plot2pdf-pc3-path* f))
 
-;; 内部函数: 处理一个图框（frameEnt）+ 所有内部对象 → 打印 + 裁剪
+;; 内部函数: 处理一个图框（frameEnt）→ 打印 + 裁剪
 (defun _plot-one-frame (frameEnt outDir margin paper scale idx / frameObj coords pts ss obj
                         pmin pmax ll ur minx miny maxx maxy w h pdfPath n
-                        oldBg oldDia oldCmd ret)
+                        oldBg oldDia oldCmd ret winEnt)
   (setq frameObj (vlax-ename->vla-object frameEnt)
         ret 0)
   (vla-Highlight frameObj :vlax-true)
@@ -31,7 +31,8 @@
   (repeat (/ (length coords) 2)
     (setq pts (cons (list (car coords) (cadr coords)) pts)
           coords (cddr coords)))
-  (setq ss (ssget "WP" pts))
+  ;; WP = 完全在框内，排除 Frame 图层（图框只作选择器）
+  (setq ss (ssget "WP" pts '((8 . "~Frame"))))
   (if ss
     (progn
       (setq minx 1e10 miny 1e10 maxx -1e10 maxy -1e10)
@@ -47,7 +48,8 @@
             (setq minx (min minx (car ll) (car ur))
                   miny (min miny (cadr ll) (cadr ur))
                   maxx (max maxx (car ll) (car ur))
-                  maxy (max maxy (cadr ll) (cadr ur))))))
+                  maxy (max maxy (cadr ll) (cadr ur)))
+          )))
       (if (not (or (= minx 1e10) (= miny 1e10)))
         (progn
           (setq w (- maxx minx) h (- maxy miny)
@@ -58,7 +60,19 @@
           (setvar "BACKGROUNDPLOT" 0)
           (setvar "FILEDIA" 0)
           (setvar "CMDECHO" 0)
+          (setvar "NOMUTT" 1)
           (princ (strcat "\n正在打印 " (vl-filename-base pdfPath) ".pdf"))
+          ;; 在模型空间画出打印边界（红色矩形，_PlotWindow 图层，不打印）
+          (if (not (tblsearch "LAYER" "_PlotWindow"))
+            (command "_.-LAYER" "_N" "_PlotWindow" "_C" "1" "_PlotWindow" "_P" "N" "_PlotWindow" ""))
+          (setq winEnt (entmakex
+            (list '(0 . "LWPOLYLINE") '(100 . "AcDbEntity") '(100 . "AcDbPolyline")
+                  '(90 . 4) '(70 . 1) (cons 8 "_PlotWindow")
+                  (cons 10 (list (- minx margin) (- miny margin)))
+                  (cons 10 (list (+ maxx margin) (- miny margin)))
+                  (cons 10 (list (+ maxx margin) (+ maxy margin)))
+                  (cons 10 (list (- minx margin) (+ maxy margin))))))
+          ;; command 打印（VLA 在当前 AutoCAD 不支持，改用 -PLOT）
           (command "_.-PLOT"
             "Y" "Model"
             *plot2pdf-pc3*
@@ -68,6 +82,8 @@
             (strcat "1=" (rtos scale 2 4)) "0,0" "Y" "monochrome.ctb" "Y" "A"
             pdfPath "N" "Y")
           (while (= (logand (getvar "CMDACTIVE") 1) 1) (command ""))
+          (entdel winEnt)
+          (setvar "NOMUTT" 0)
           (setvar "CMDECHO" oldCmd)
           (setvar "FILEDIA" oldDia)
           (setvar "BACKGROUNDPLOT" oldBg)
@@ -75,10 +91,7 @@
             (progn
               (vlax-invoke (vlax-create-object "WScript.Shell") 'Run
                 (strcat "\"" *plot2pdf-dir* "\\crop_pdf.exe\" \""
-                        pdfPath "\" " (rtos minx 2 6) " " (rtos miny 2 6) " "
-                        (rtos maxx 2 6) " " (rtos maxy 2 6) " " (rtos margin 2 6)
-                        " \"" (if *plot2pdf-pc3-path* *plot2pdf-pc3-path* "") "\""
-                        " 0.5 0.3 -0.2") 0)
+                        pdfPath "\" \"1.0\"") 0)
               (setq ret 1))
             (princ "\n错误: crop_pdf.exe 未找到，跳过裁剪。"))))))
   (vla-Highlight frameObj :vlax-false)
@@ -101,7 +114,7 @@
       (command "_.-LAYER" "_N" "Frame" "")
       (vla-put-Plottable (vlax-ename->vla-object (tblobjname "LAYER" "Frame")) :vlax-false)))
 
-  (setq margin 0.5 paper "A0"
+  (setq margin 0 paper "ISO_A0_(841.00_x_1189.00_MM)"
         outDir (strcat (getvar "DWGPREFIX") (vl-filename-base (getvar "DWGNAME")) "_PDFs"))
   (vl-mkdir outDir)
 

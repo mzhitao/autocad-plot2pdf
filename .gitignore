@@ -4,3 +4,11 @@ __pycache__/
 .history/
 *.tmp
 crop_pdf/target/
+
+# built binaries
+*.exe
+# registry scripts
+*.reg
+# temp / test files
+temp_*
+test_*
