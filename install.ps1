@@ -1,16 +1,13 @@
-param(
-    [string]$InstallDir = "$env:ProgramFiles\PlotTools",
-    [string]$Repo = "mzhitao/autocad-plot2pdf",
-    [string]$Branch = "master"
-)
-
 $ErrorActionPreference = "Stop"
+$InstallDir = "$env:ProgramFiles\PlotTools"
+$Repo = "mzhitao/autocad-plot2pdf"
+$Branch = "master"
 
-# --- Admin check ---
+# Admin check
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) { Write-Host "ERROR: Run as Administrator" -ForegroundColor Red; exit 1 }
 
-# --- Detect AutoCAD ---
+# Detect AutoCAD
 $autoCadPaths = @()
 foreach ($base in "HKCU:\SOFTWARE\Autodesk\AutoCAD","HKLM:\SOFTWARE\Autodesk\AutoCAD","HKLM:\SOFTWARE\WOW6432Node\Autodesk\AutoCAD") {
     if (-not (Test-Path $base)) { continue }
@@ -26,32 +23,22 @@ if ($autoCadPaths.Count -eq 0) { Write-Host "ERROR: AutoCAD not found" -Foregrou
 Write-Host "Found AutoCAD:" -ForegroundColor Cyan
 $autoCadPaths | ForEach-Object { Write-Host "  $($_.Version) $($_.Product)" }
 
-# --- Install files ---
+# Install
 if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null }
 Write-Host "`nInstalling to: $InstallDir" -ForegroundColor Cyan
 
-# Local mode = script was run from a file (not piped via iex)
-$localMode = $false
-if ($PSScriptRoot -and (Test-Path "$PSScriptRoot\plot-core.lsp")) { $localMode = $true }
 $rawUrl = "https://raw.githubusercontent.com/$Repo/$Branch"
-$files = @("plot-core.lsp","plot2pdf.lsp","plot2emf.lsp","plot-loader.lsp","plot-config.json","crop_pdf.exe")
-
-foreach ($f in $files) {
+foreach ($f in @("plot-core.lsp","plot2pdf.lsp","plot2emf.lsp","plot-loader.lsp","plot-config.json","crop_pdf.exe")) {
     Write-Host "  $f ... " -NoNewline
-    if ($localMode -and (Test-Path "$PSScriptRoot\$f")) {
-        Copy-Item "$PSScriptRoot\$f" $InstallDir -Force
-        Write-Host "OK (local)" -ForegroundColor Green
-    } else {
-        try {
-            Invoke-WebRequest -Uri "$rawUrl/$f" -OutFile "$InstallDir\$f" -UseBasicParsing -ErrorAction Stop
-            Write-Host "OK" -ForegroundColor Green
-        } catch {
-            Write-Host "skip" -ForegroundColor Yellow
-        }
+    try {
+        Invoke-WebRequest -Uri "$rawUrl/$f" -OutFile "$InstallDir\$f" -UseBasicParsing -ErrorAction Stop
+        Write-Host "OK" -ForegroundColor Green
+    } catch {
+        Write-Host "skip" -ForegroundColor Yellow
     }
 }
 
-# --- Config ---
+# Config
 $configPath = "$InstallDir\plot-config.json"
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -60,9 +47,9 @@ if (Test-Path $configPath) {
     Write-Host "  config updated" -ForegroundColor Green
 }
 
-# --- Startup Suite ---
+# Startup Suite
 $loaderPath = "$InstallDir\plot-loader.lsp"
-if (-not (Test-Path $loaderPath)) { Write-Host "`nERROR: plot-loader.lsp missing" -ForegroundColor Red; exit 1 }
+if (-not (Test-Path $loaderPath)) { Write-Host "ERROR: plot-loader.lsp missing" -ForegroundColor Red; exit 1 }
 $count = 0
 foreach ($acad in $autoCadPaths) {
     $startupKey = "$($acad.RegPath)\Applications\AcadApp\Startup"
