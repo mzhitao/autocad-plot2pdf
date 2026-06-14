@@ -3,11 +3,11 @@ $InstallDir = "$env:ProgramFiles\PlotTools"
 $Repo = "mzhitao/autocad-plot2pdf"
 $Branch = "master"
 
-# Admin check
+# ---- 管理员检查 ----
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) { echo "ERROR: Run as Administrator"; exit 1 }
+if (-not $isAdmin) { Write-Host "需要管理员权限" -ForegroundColor Red; exit 1 }
 
-# Detect AutoCAD
+# ---- 检测 AutoCAD ----
 $autoCadPaths = @()
 foreach ($base in "HKCU:\SOFTWARE\Autodesk\AutoCAD","HKLM:\SOFTWARE\Autodesk\AutoCAD","HKLM:\SOFTWARE\WOW6432Node\Autodesk\AutoCAD") {
     if (-not (Test-Path $base)) { continue }
@@ -19,37 +19,37 @@ foreach ($base in "HKCU:\SOFTWARE\Autodesk\AutoCAD","HKLM:\SOFTWARE\Autodesk\Aut
         }
     }
 }
-if ($autoCadPaths.Count -eq 0) { echo "ERROR: AutoCAD not found"; exit 1 }
-echo "Found AutoCAD:"
-$autoCadPaths | ForEach-Object { echo "  $($_.Version) $($_.Product)" }
+if ($autoCadPaths.Count -eq 0) { Write-Host "未检测到 AutoCAD" -ForegroundColor Red; exit 1 }
+Write-Host "检测到 AutoCAD:" -ForegroundColor Cyan
+$autoCadPaths | ForEach-Object { Write-Host "  $($_.Version) $($_.Product)" }
 
-# Install
+# ---- 安装文件 ----
 if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null }
-echo "`nInstalling to: $InstallDir"
+Write-Host "`n安装到: $InstallDir" -ForegroundColor Cyan
 
 $rawUrl = "https://raw.githubusercontent.com/$Repo/$Branch"
 foreach ($f in @("plot-core.lsp","plot2pdf.lsp","plot2emf.lsp","plot-loader.lsp","plot-config.json","crop_pdf.exe")) {
-    echo "  $f ..."
+    Write-Host "  $f ... " -NoNewline
     try {
         Invoke-WebRequest -Uri "$rawUrl/$f" -OutFile "$InstallDir\$f" -UseBasicParsing -ErrorAction Stop
-        echo "OK"
+        Write-Host "OK" -ForegroundColor Green
     } catch {
-        echo "skip"
+        Write-Host "跳过" -ForegroundColor Yellow
     }
 }
 
-# Config
+# ---- 配置 ----
 $configPath = "$InstallDir\plot-config.json"
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
     $config.modules_dir = $InstallDir.Replace("\", "\\") + "\\"
     $config | ConvertTo-Json | Set-Content $configPath -Encoding UTF8
-    echo "  config updated"
+    Write-Host "  配置已更新" -ForegroundColor Green
 }
 
-# Startup Suite
+# ---- 添加启动组 ----
 $loaderPath = "$InstallDir\plot-loader.lsp"
-if (-not (Test-Path $loaderPath)) { echo "ERROR: plot-loader.lsp missing"; exit 1 }
+if (-not (Test-Path $loaderPath)) { Write-Host "错误: plot-loader.lsp 未安装" -ForegroundColor Red; exit 1 }
 $count = 0
 foreach ($acad in $autoCadPaths) {
     $startupKey = "$($acad.RegPath)\Applications\AcadApp\Startup"
@@ -62,12 +62,12 @@ foreach ($acad in $autoCadPaths) {
         if ($props) { $nums = $props.PSObject.Properties | Where-Object { $_.Name -match '^\d+$' }
             if ($nums) { $next = ($nums | ForEach-Object { [int]$_.Name } | Measure-Object -Maximum).Maximum + 1 } }
         Set-ItemProperty -LiteralPath $startupKey -Name "$next" -Value $loaderPath
-        echo "  added to $($acad.Version) startup"; $count++
+        Write-Host "  已添加到 $($acad.Version) 启动组" -ForegroundColor Green; $count++
     }
 }
-if ($count -eq 0) { echo "  startup group already set" }
+if ($count -eq 0) { Write-Host "  启动组已存在，跳过" -ForegroundColor Yellow }
 
-echo "`nDone!"
-echo "  Install dir: $InstallDir"
-echo "  Commands: PLOT2PDF, PLOT2EMF"
-echo "  Restart AutoCAD to activate"
+Write-Host "`n安装完成!" -ForegroundColor Green
+Write-Host "  目录: $InstallDir"
+Write-Host "  命令: PLOT2PDF, PLOT2EMF"
+Write-Host "  重启 AutoCAD 后生效"
