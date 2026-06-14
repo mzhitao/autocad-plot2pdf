@@ -1,7 +1,7 @@
 param(
     [string]$InstallDir = "$env:ProgramFiles\PlotTools",
     [string]$Repo = "mzhitao/autocad-plot2pdf",
-    [string]$Branch = "main"
+    [string]$Branch = "master"
 )
 
 $ErrorActionPreference = "Stop"
