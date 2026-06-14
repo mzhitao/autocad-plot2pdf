@@ -1,7 +1,7 @@
-;; plot2pdf.lsp — Frame 图层 → 批量 PDF → 裁剪
-;; 命令: PLOT2PDF（需先加载 plot-core.lsp）
+;; plot2emf.lsp — Frame 图层 → 批量 PDF → EMF 输出
+;; 命令: PLOT2EMF（需先加载 plot-core.lsp）
 
-(defun c:PLOT2PDF (/ margin paper outDir ss i total pdfPath)
+(defun c:PLOT2EMF (/ margin paper outDir ss i total pdfPath emfPath)
   ;; 确保 Frame 图层存在
   (if (not (tblsearch "LAYER" "Frame"))
     (progn
@@ -10,7 +10,7 @@
 
   (setq margin 0
         paper "ISO_A0_(841.00_x_1189.00_MM)"
-        outDir (strcat (getvar "DWGPREFIX") (vl-filename-base (getvar "DWGNAME")) "_PDFs"))
+        outDir (strcat (getvar "DWGPREFIX") (vl-filename-base (getvar "DWGNAME")) "_EMFs"))
   (vl-mkdir outDir)
 
   (setq ss (ssget '((0 . "LWPOLYLINE") (8 . "Frame") (-4 . "&=") (70 . 1))))
@@ -22,19 +22,23 @@
         (setq pdfPath (_plot-one-frame (ssname ss i) outDir paper *plot-core-scale* (1+ i)))
         (if pdfPath
           (progn
-            ;; 调用 crop_pdf.exe 裁剪
+            (setq emfPath (strcat (vl-filename-directory pdfPath) "\\"
+                                  (vl-filename-base pdfPath) ".emf"))
             (if *plot-core-dir*
               (progn
                 (vlax-invoke (vlax-create-object "WScript.Shell") 'Run
-                  (strcat "\"" *plot-core-dir* "\\crop_pdf.exe\" \""
-                          pdfPath "\" \"1.0\"") 0)
+                  (strcat "\"" *plot-core-dir* "\\crop_pdf.exe\" --emf \""
+                          pdfPath "\"") 0)
+                ;; 等 crop_pdf 处理完（简单轮询）
+                (princ (strcat "\n正在生成 EMF: " (vl-filename-base emfPath) ".emf"))
                 (setq total (1+ total)))
-              (princ "\n错误: crop_pdf.exe 未找到，跳过裁剪。"))))
+              (princ "\n错误: crop_pdf.exe 未找到")))
+          (princ "\n跳过空图框"))
         (setq i (1+ i)))
-      (princ (strcat "\n全部完成, 共生成 " (itoa total) " 个 PDF"))
+      (princ (strcat "\n全部完成, 共生成 " (itoa total) " 个 EMF"))
       (princ (strcat "\n输出目录: " outDir)))
     (princ "\n未选择 Frame 封闭多段线"))
   (princ))
 
-(princ "\nplot2pdf 已加载 — 命令: PLOT2PDF")
+(princ "\nplot2emf 已加载 — 命令: PLOT2EMF")
 (princ)

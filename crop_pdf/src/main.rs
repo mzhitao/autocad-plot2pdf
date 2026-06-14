@@ -1,8 +1,11 @@
+mod emf;
+
 use lopdf::content::Content;
 use lopdf::{Document, Object, ObjectId};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::path::Path;
 
 fn mm2pt(v: f64) -> f64 {
     v * 72.0 / 25.4
@@ -277,10 +280,196 @@ fn page_resources(doc: &Document, page_id: ObjectId) -> Option<lopdf::Dictionary
     }
 }
 
+#[allow(unused_assignments)]
+fn content_to_emf(
+    doc: &Document,
+    bytes: &[u8],
+    resources: Option<&lopdf::Dictionary>,
+    emf: &mut emf::Emf,
+    initial_ctm: [f64; 6],
+    depth: usize,
+) {
+    let content = match Content::decode(bytes) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut ctm_stack: Vec<[f64; 6]> = vec![initial_ctm];
+    let mut in_path = false;
+
+    let xobj_lookup = resources
+        .and_then(|r| r.get(b"XObject").ok()?.as_dict().ok());
+
+    for op in &content.operations {
+        match op.operator.as_str() {
+            "cm" if op.operands.len() >= 6 => {
+                let ctm = ctm_stack.last_mut().unwrap();
+                concat_ctm(ctm,
+                    of32(&op.operands[0]), of32(&op.operands[1]),
+                    of32(&op.operands[2]), of32(&op.operands[3]),
+                    of32(&op.operands[4]), of32(&op.operands[5]),
+                );
+            }
+            "q" => {
+                if in_path { emf.endpath(); in_path = false; }
+                emf.savedc();
+                if let Some(ctm) = ctm_stack.last() {
+                    ctm_stack.push(*ctm);
+                }
+            }
+            "Q" => {
+                if in_path { emf.endpath(); in_path = false; }
+                emf.restoredc();
+                ctm_stack.pop();
+                if ctm_stack.is_empty() {
+                    ctm_stack.push([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+                }
+            }
+            "m" if op.operands.len() >= 2 => {
+                if in_path { emf.endpath(); in_path = false; }
+                let (x, y) = {
+                    let ctm = ctm_stack.last().unwrap();
+                    xf(ctm, of32(&op.operands[0]), of32(&op.operands[1]))
+                };
+                emf.beginpath();
+                emf.moveto(x, y);
+                in_path = true;
+            }
+            "l" if op.operands.len() >= 2 => {
+                let (x, y) = {
+                    let ctm = ctm_stack.last().unwrap();
+                    xf(ctm, of32(&op.operands[0]), of32(&op.operands[1]))
+                };
+                emf.lineto(x, y);
+            }
+            "c" if op.operands.len() >= 6 => {
+                let ctm = ctm_stack.last().unwrap();
+                let p1 = xf(ctm, of32(&op.operands[0]), of32(&op.operands[1]));
+                let p2 = xf(ctm, of32(&op.operands[2]), of32(&op.operands[3]));
+                let p3 = xf(ctm, of32(&op.operands[4]), of32(&op.operands[5]));
+                emf.curveto(p1.0, p1.1, p2.0, p2.1, p3.0, p3.1);
+            }
+            "v" if op.operands.len() >= 4 => {
+                let ctm = ctm_stack.last().unwrap();
+                let p2 = xf(ctm, of32(&op.operands[0]), of32(&op.operands[1]));
+                let p3 = xf(ctm, of32(&op.operands[2]), of32(&op.operands[3]));
+                let p1 = xf(ctm, 0.0, 0.0);
+                emf.curveto(p1.0, p1.1, p2.0, p2.1, p3.0, p3.1);
+            }
+            "y" if op.operands.len() >= 4 => {
+                let ctm = ctm_stack.last().unwrap();
+                let p2 = xf(ctm, of32(&op.operands[0]), of32(&op.operands[1]));
+                let p3 = xf(ctm, of32(&op.operands[2]), of32(&op.operands[3]));
+                emf.curveto(p2.0, p2.1, p2.0, p2.1, p3.0, p3.1);
+            }
+            "re" if op.operands.len() >= 4 => {
+                let ctm = ctm_stack.last().unwrap();
+                let mut x = of32(&op.operands[0]);
+                let mut y = of32(&op.operands[1]);
+                let w = of32(&op.operands[2]);
+                let h = of32(&op.operands[3]);
+                let p1 = xf(ctm, x, y);
+                let p2 = xf(ctm, x + w, y + h);
+                x = p1.0.min(p2.0);
+                y = p1.1.min(p2.1);
+                let w2 = (p2.0 - p1.0).abs();
+                let h2 = (p2.1 - p1.1).abs();
+                emf.rect(x, y, w2, h2);
+            }
+            "h" => {
+                emf.closefig();
+            }
+            "S" | "s" => {
+                if in_path { emf.endpath(); in_path = false; }
+                emf.stroke();
+            }
+            "f" | "F" | "f*" => {
+                if in_path { emf.endpath(); in_path = false; }
+                emf.fill();
+            }
+            "B" | "B*" | "b" | "b*" => {
+                if in_path { emf.endpath(); in_path = false; }
+                emf.fillstroke();
+            }
+            "n" => {
+                if in_path { emf.endpath(); in_path = false; }
+            }
+            "Do" => {
+                if in_path { emf.endpath(); in_path = false; }
+                if let Some(xobj_dict) = xobj_lookup {
+                    if let Ok(name) = op.operands.first().ok_or(()).and_then(|o| o.as_name().map_err(|_| ())) {
+                        if let Ok(xobj_ref) = xobj_dict.get(name) {
+                            if let Some((child_bytes, child_dict)) = resolve_stream(doc, xobj_ref) {
+                                let subtype = child_dict.get(b"Subtype").ok().and_then(|o| o.as_name().ok());
+                                if subtype == Some(b"Form") {
+                                    let mut form_ctm = *ctm_stack.last().unwrap();
+                                    if let Ok(matrix) = child_dict.get(b"Matrix") {
+                                        if let Ok(arr) = matrix.as_array() {
+                                            if arr.len() >= 6 {
+                                                concat_ctm(&mut form_ctm,
+                                                    of32(&arr[0]), of32(&arr[1]),
+                                                    of32(&arr[2]), of32(&arr[3]),
+                                                    of32(&arr[4]), of32(&arr[5]),
+                                                );
+                                            }
+                                        }
+                                    }
+                                    let child_res = child_dict.get(b"Resources").ok().and_then(|r| r.as_dict().ok());
+                                    content_to_emf(doc, &child_bytes, child_res, emf, form_ctm, depth + 1);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if in_path { emf.endpath(); }
+}
+
+fn export_emf(doc: &Document, pdf_path: &str) {
+    let pages = doc.get_pages();
+    let pdf_stem = Path::new(pdf_path).file_stem().unwrap().to_str().unwrap();
+
+    for (&num, &page_id) in &pages {
+        let pw_ph = (|| -> Option<(f64, f64)> {
+            let obj = doc.objects.get(&page_id)?;
+            let dict = obj.as_dict().ok()?;
+            let mb = dict.get(b"MediaBox").ok()?;
+            let arr = mb.as_array().ok()?;
+            let v: Vec<f32> = arr.iter().filter_map(|o| o.as_float().ok()).collect();
+            if v.len() >= 4 { Some(((v[2] - v[0]) as f64, (v[3] - v[1]) as f64)) } else { None }
+        })().unwrap_or((841.0, 1189.0));
+        let (pw, ph) = pw_ph;
+
+        let out_path = if pages.len() > 1 {
+            format!("{}-p{}.emf", pdf_stem, num)
+        } else {
+            format!("{}.emf", pdf_stem)
+        };
+
+        eprintln!("  Page {} -> {}", num, out_path);
+
+        let mut emf = emf::Emf::new(pw, ph);
+
+        if let Some(bytes) = page_content_bytes(doc, page_id) {
+            let resources = page_resources(doc, page_id);
+            content_to_emf(doc, &bytes, resources.as_ref(), &mut emf, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], 1);
+        }
+
+        if let Err(e) = emf.save(&out_path) {
+            eprintln!("  ERROR writing EMF: {}", e);
+        } else {
+            eprintln!("  Wrote {}", out_path);
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: crop_pdf <PDF> [padding_mm] [--dump|--scan]");
+        eprintln!("Usage: crop_pdf <PDF> [padding_mm] [--dump|--scan|--emf]");
         std::process::exit(1);
     }
 
@@ -292,17 +481,17 @@ fn main() {
     };
     let dump = args.iter().any(|a| a == "--dump");
     let scan = args.iter().any(|a| a == "--scan");
+    let emf_mode = args.iter().any(|a| a == "--emf");
     let pad_pt = mm2pt(padding_mm) as f32;
 
     eprintln!("=== crop_pdf: {} (padding={}mm){} ===", pdf_path, padding_mm,
-        if scan { " --scan" } else if dump { " --dump" } else { "" });
+        if scan { " --scan" } else if emf_mode { " --emf" } else if dump { " --dump" } else { "" });
 
     let mut doc = Document::load(pdf_path).expect("Failed to load PDF");
     doc.decompress();
 
     // --scan: dump all objects
     if scan {
-        // Also dump content streams for page
         for (&_num, &page_id) in &doc.get_pages() {
             if let Some(bytes) = page_content_bytes(&doc, page_id) {
                 eprintln!("\n--- Page content (raw text) ---");
@@ -312,13 +501,10 @@ fn main() {
                 }
             }
         }
-
-        // Find and dump any big streams
         for (id, obj) in &doc.objects {
             if let Some(stream) = obj.as_stream().ok() {
                 if stream.content.len() > 10000 {
                     eprintln!("\n--- Large stream obj {}.{} ({}B) ---", id.0, id.1, stream.content.len());
-                    // Check if it contains ASCII PDF operators
                     let text = String::from_utf8_lossy(&stream.content[..stream.content.len().min(500)]);
                     if text.contains('m') || text.contains('l') || text.contains('c') || text.contains("re") {
                         eprintln!("  Contains path operators — likely Form content");
@@ -397,6 +583,12 @@ fn main() {
                 eprintln!("  obj {}.{}: {:?}", id.0, id.1, obj);
             }
         }
+        return;
+    }
+
+    // --emf: export EMF
+    if emf_mode {
+        export_emf(&doc, pdf_path);
         return;
     }
 
